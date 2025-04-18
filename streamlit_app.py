@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
-from pybaseball import statcast_batter_vs_pitcher
+from pybaseball import statcast_batter_pitcher
 
 st.set_page_config(page_title="MLB HR Predictor", layout="wide")
 st.title("MLB Home Run Probability Predictor")
@@ -65,10 +65,10 @@ def fetch_data():
         hr_rate = hrs / gp if gp > 0 else 0
         hr_prob = hr_rate * 10000
 
-        # 🧠 Batter vs Pitcher Statcast Data (via pybaseball)
+        # Batter vs Pitcher using statcast
         matchup_note = "No Statcast matchup"
         try:
-            matchup_df = statcast_batter_vs_pitcher(p['id'], pitcher['id'], start_dt="2024-03-01", end_dt=today)
+            matchup_df = statcast_batter_pitcher(start_dt="2024-03-01", end_dt=today, batter=p['id'], pitcher=pitcher['id'])
             if not matchup_df.empty:
                 ab = len(matchup_df)
                 hr = matchup_df['events'].fillna('').str.count('home_run').sum()
@@ -77,7 +77,7 @@ def fetch_data():
                 if hr > 0:
                     hr_prob *= 1.05
         except:
-            matchup_note = "Error loading matchup"
+            matchup_note = "Matchup data unavailable"
 
         results.append({
             "Player": p['fullName'],
