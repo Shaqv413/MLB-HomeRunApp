@@ -175,9 +175,14 @@ def fetch_data():
             "HR Chance": f"{round(hr_prob, 1)}%"
         })
 
-    return pd.DataFrame(results).sort_values(by="HR Chance", ascending=False)
+    if results:
+        return pd.DataFrame(results).sort_values(by="HR Chance", ascending=False)
+    else:
+        return pd.DataFrame()  # This triggers the fallback display
 
-# MAIN DISPLAY LOGIC
+
+# === MAIN SECTION ===
+
 df = fetch_data()
 
 if df.empty:
@@ -213,5 +218,5 @@ if df.empty:
 
     df = pd.DataFrame(fallback_rows)
 
-# Always show the table — no matter what
+# Show results
 st.dataframe(df.reset_index(drop=True), use_container_width=True)
