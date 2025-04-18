@@ -178,10 +178,9 @@ def fetch_data():
     if results:
         return pd.DataFrame(results).sort_values(by="HR Chance", ascending=False)
     else:
-        return pd.DataFrame()  # This triggers the fallback display
+        return pd.DataFrame()  # triggers fallback
 
-
-# === MAIN SECTION ===
+# === MAIN DISPLAY LOGIC ===
 
 df = fetch_data()
 
@@ -207,16 +206,10 @@ if df.empty:
             "Team": p.get('currentTeam', {}).get('name', 'N/A'),
             "HRs": s.get('homeRuns', 0),
             "AVG": s.get('avg', 'N/A'),
-            "OPS": s.get('ops', 'N/A'),
-            "Pitcher": "N/A",
-            "Matchup": "No confirmed matchup",
-            "Location": "N/A",
-            "Time": "N/A",
-            "Park Factor": "N/A",
-            "HR Chance": "N/A"
+            "OPS": s.get('ops', 'N/A')
         })
 
     df = pd.DataFrame(fallback_rows)
 
-# Show results
+# Display table
 st.dataframe(df.reset_index(drop=True), use_container_width=True)
