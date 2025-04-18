@@ -43,6 +43,42 @@ park_factors = {
 
 @st.cache_data(show_spinner=False)
 def fetch_data():
+   df = fetch_data()
+
+if df.empty:
+    st.warning("No confirmed pitcher matchups today — showing top 100 HR leaders without HR chance.")
+    
+    stats_url = "https://statsapi.mlb.com/api/v1/stats"
+    params = {
+        "stats": "season",
+        "group": "hitting",
+        "season": "2025",
+        "limit": 100,
+        "sortStat": "homeRuns"
+    }
+    top_players = requests.get(stats_url, params=params).json()['stats'][0]['splits']
+    fallback_rows = []
+
+    for player in top_players:
+        p = player['player']
+        s = player['stat']
+        fallback_rows.append({
+            "Player": p['fullName'],
+            "Team": p.get('currentTeam', {}).get('name', 'N/A'),
+            "HRs": s.get('homeRuns', 0),
+            "AVG": s.get('avg', 'N/A'),
+            "OPS": s.get('ops', 'N/A'),
+            "Pitcher": "N/A",
+            "Matchup": "No confirmed matchup",
+            "Location": "N/A",
+            "Time": "N/A",
+            "Park Factor": "N/A",
+            "HR Chance": "N/A"
+        })
+
+    df = pd.DataFrame(fallback_rows)
+
+st.dataframe(df.reset_index(drop=True), use_container_width=True) 
     results = []
     stats_url = "https://statsapi.mlb.com/api/v1/stats"
     params = {
