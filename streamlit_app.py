@@ -7,7 +7,7 @@ st.set_page_config(layout="wide")
 st.title("MLB Home Run Probability Predictor")
 st.markdown(f"**Date:** {datetime.now().date()}")
 
-# Ballpark HR Factors (100 is neutral)
+# Ballpark HR Factors (100 = neutral)
 park_factors = {
     "Coors Field": 115,
     "Yankee Stadium": 110,
@@ -47,25 +47,25 @@ def fetch_data():
         "stats": "season",
         "group": "hitting",
         "season": "2025",
-        "limit": 50,  # faster load
+        "limit": 50,  # Faster loading
         "sortStat": "homeRuns"
     }
 
     response = requests.get(stats_url, params=params)
     data = response.json()
 
-    results = []
     players = data.get("stats", [{}])[0].get("splits", [])
+    results = []
 
     for player in players:
         info = player.get("player", {})
         stats = player.get("stat", {})
-        team_info = info.get("currentTeam", {}).get("name", "N/A")
+        team = info.get("currentTeam", {}).get("name", "N/A")
         venue = player.get("team", {}).get("venue", {}).get("name", "N/A")
 
         hr = int(stats.get("homeRuns", 0))
-        avg = stats.get("avg", "N/A")
         ab = int(stats.get("atBats", 0))
+        avg = stats.get("avg", "N/A")
         ab_per_hr = round(ab / hr, 1) if hr > 0 else None
 
         park = venue
@@ -78,7 +78,7 @@ def fetch_data():
 
         results.append({
             "Player": info.get("fullName", "N/A"),
-            "Team": team_info,
+            "Team": team,
             "HRs": hr,
             "AVG": avg,
             "AB/HR (2025)": ab_per_hr if ab_per_hr else "N/A",
@@ -89,14 +89,15 @@ def fetch_data():
 
     df = pd.DataFrame(results)
 
+    # Final sort and format with safety
     if not df.empty and "HR Chance" in df.columns:
         df = df.dropna(subset=["HR Chance"])
         df = df.sort_values(by="HR Chance", ascending=False)
-        df["HR Chance"] = df["HR Chance"].astype(str) + "%"
+        df["HR Chance"] = df["HR Chance"].astype(float).round(1).astype(str) + "%"
 
     return df
 
-# Load and show
+# Show results
 df = fetch_data()
 
 if df.empty:
