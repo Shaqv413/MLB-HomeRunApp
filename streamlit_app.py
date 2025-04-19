@@ -1,179 +1,100 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
-from pybaseball import statcast_batter, batting_stats_range
+from datetime import datetime
 
-st.set_page_config(page_title="MLB HR Predictor", layout="wide")
+st.set_page_config(layout="wide")
 st.title("MLB Home Run Probability Predictor")
-st.markdown("#### Date: {}".format(datetime.today().strftime("%Y-%m-%d")))
+st.markdown(f"**Date:** {datetime.now().date()}")
 
-# ----------------------------
-# Ballpark HR Boost Factors
-# ----------------------------
-ballpark_factors = {
-    "Coors Field": 1.20,
-    "Yankee Stadium": 1.10,
-    "Great American Ball Park": 1.12,
-    "Dodger Stadium": 1.05,
-    "Globe Life Field": 1.04,
-    "Fenway Park": 1.08,
-    "Wrigley Field": 1.07,
-    "Oracle Park": 0.85,
-    "Petco Park": 0.91,
-    "LoanDepot Park": 0.89,
-    "T-Mobile Park": 0.95,
-    "Citi Field": 0.92,
-    "PNC Park": 0.88,
+# Ballpark HR Factors (100 is neutral)
+park_factors = {
+    "Coors Field": 115,
+    "Yankee Stadium": 110,
+    "Fenway Park": 108,
+    "Dodger Stadium": 104,
+    "Oracle Park": 85,
+    "Petco Park": 91,
+    "Great American Ball Park": 115,
+    "LoanDepot Park": 88,
+    "Camden Yards": 107,
+    "Wrigley Field": 105,
+    "Globe Life Field": 102,
+    "Truist Park": 97,
+    "Minute Maid Park": 99,
+    "Citi Field": 94,
+    "T-Mobile Park": 96,
+    "Chase Field": 107,
+    "Comerica Park": 92,
+    "American Family Field": 106,
+    "Target Field": 98,
+    "Kauffman Stadium": 95,
+    "Busch Stadium": 93,
+    "Oakland Coliseum": 86,
+    "Rogers Centre": 103,
+    "Tropicana Field": 90,
+    "Nationals Park": 100,
+    "Progressive Field": 99,
+    "Guaranteed Rate Field": 102,
+    "Angel Stadium": 101,
+    "PNC Park": 97
 }
 
-# ----------------------------
-# Game Schedule → Stadium Mapping
-# ----------------------------
-@st.cache_data(show_spinner=False)
-def get_today_venues():
-    today = datetime.today().strftime('%Y-%m-%d')
-    url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}"
-    res = requests.get(url).json()
-
-    team_venue_map = {}
-    for date in res.get("dates", []):
-        for game in date.get("games", []):
-            venue = game.get("venue", {}).get("name")
-            home = game.get("teams", {}).get("home", {}).get("team", {}).get("name")
-            away = game.get("teams", {}).get("away", {}).get("team", {}).get("name")
-            if venue:
-                if home:
-                    team_venue_map[home] = venue
-                if away:
-                    team_venue_map[away] = venue
-    return team_venue_map
-
-# ----------------------------
-# Caching Historical Season Data
-# ----------------------------
-@st.cache_data(show_spinner=False)
-def load_historical_ab_hr():
-    data_2023 = batting_stats_range("2023-03-01", "2023-11-01")
-    data_2023["Season"] = "2023"
-    data_2024 = batting_stats_range("2024-03-01", "2024-11-01")
-    data_2024["Season"] = "2024"
-    return pd.concat([data_2023, data_2024], ignore_index=True)
-
-@st.cache_data(show_spinner=False)
-def load_current_season_ab_hr():
-    end = datetime.today().strftime('%Y-%m-%d')
-    data_2025 = batting_stats_range("2025-03-01", end)
-    data_2025["Season"] = "2025"
-    return data_2025
-
-@st.cache_data(show_spinner=False)
-def get_team_lookup():
-    url = "https://statsapi.mlb.com/api/v1/teams?sportId=1"
-    res = requests.get(url).json()
-    return {team['id']: team['abbreviation'] for team in res['teams']}
-
-@st.cache_data(show_spinner=False)
-def fetch_top_hitters(season):
-    team_lookup = get_team_lookup()
-    url = "https://statsapi.mlb.com/api/v1/stats"
+@st.cache_data(ttl=3600)
+def fetch_data():
+    stats_url = "https://statsapi.mlb.com/api/v1/stats"
     params = {
         "stats": "season",
         "group": "hitting",
-        "season": season,
+        "season": "2025",
         "limit": 100,
         "sortStat": "homeRuns"
     }
-    res = requests.get(url, params=params).json()
-    players = res['stats'][0]['splits']
+
+    response = requests.get(stats_url, params=params)
+    data = response.json()
+
+    players = data["stats"][0]["splits"]
     results = []
+
     for player in players:
-        info = player['player']
-        stats = player['stat']
-        team_id = player.get('team', {}).get('id')
-        team = team_lookup.get(team_id, "N/A") if team_id else "N/A"
-        results.append({
-            "Player": info.get('fullName', 'Unknown'),
-            "ID": info.get('id'),
-            "Team": team,
-            "HRs": stats.get('homeRuns', 0),
-        })
-    return pd.DataFrame(results)
+        info = player["player"]
+        stats = player["stat"]
+        team_info = info.get("currentTeam", {}).get("name", "N/A")
+        venue = player.get("team", {}).get("venue", {}).get("name", "N/A")
 
-# ----------------------------
-# Recency Boost Based on Last 7 Days
-# ----------------------------
-def get_recent_hr_boost(batter_id):
-    try:
-        end = datetime.today()
-        start = end - timedelta(days=7)
-        logs = statcast_batter(start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'), batter_id)
-        if logs.empty:
-            return 0
-        hr_count = logs['events'].fillna('').str.count('home_run').sum()
-        if hr_count >= 4:
-            return 0.25
-        elif hr_count >= 2:
-            return 0.1
-        else:
-            return 0
-    except:
-        return 0
+        # Pull recent HR + AVG from season stats
+        hr = int(stats.get("homeRuns", 0))
+        avg = stats.get("avg", "N/A")
+        ab = int(stats.get("atBats", 0))
+        ab_per_hr = round(ab / hr, 1) if hr > 0 else "N/A"
 
-# ----------------------------
-# Weighted HR Rate Formula (2023–2025)
-# ----------------------------
-def calculate_weighted_hr_rate(name, combined_df):
-    weights = {"2023": 0.1, "2024": 0.3, "2025": 0.6}
-    total_ab = 0
-    total_hr = 0
-    for season in weights:
-        row = combined_df[(combined_df["Name"] == name) & (combined_df["Season"] == season)]
-        if not row.empty:
-            ab = int(row["AB"].values[0])
-            hr = int(row["HR"].values[0])
-            total_ab += ab * weights[season]
-            total_hr += hr * weights[season]
-    if total_hr > 0:
-        ab_per_hr = round(total_ab / total_hr, 2)
-        hr_rate = round(1 / ab_per_hr, 4)
-        return ab_per_hr, hr_rate
-    else:
-        return "N/A", 0.0
+        park = venue
+        park_factor = park_factors.get(park, 100)
 
-# ----------------------------
-# Final App Display
-# ----------------------------
-with st.spinner("Loading player data..."):
-    season = datetime.today().year
-    top_df = fetch_top_hitters(season)
-
-    historical_df = load_historical_ab_hr()
-    current_df = load_current_season_ab_hr()
-    combined_stats = pd.concat([historical_df, current_df], ignore_index=True)
-
-    venue_map = get_today_venues()
-
-    results = []
-    for _, row in top_df.iterrows():
-        name = row['Player']
-        pid = row['ID']
-        team = row['Team']
-
-        ab_hr, base_rate = calculate_weighted_hr_rate(name, combined_stats)
-        boost = get_recent_hr_boost(pid)
-
-        venue = venue_map.get(team, None)
-        park_factor = ballpark_factors.get(venue, 1.00)
-
-        final_chance = round(base_rate * (1 + boost) * park_factor * 100, 2)
+        # Basic probability model
+        try:
+            hr_prob = (1 / ab_per_hr) * (park_factor / 100) * 100 if isinstance(ab_per_hr, float) else "N/A"
+            hr_prob = round(hr_prob, 1) if isinstance(hr_prob, float) else "N/A"
+        except:
+            hr_prob = "N/A"
 
         results.append({
-            "Player": name,
-            "Team": team,
-            "Stadium": venue if venue else "N/A",
-            "HRs": row["HRs"],
-            "HR Chance": f"{final_chance}%" if final_chance > 0 else "N/A"
+            "Player": info.get("fullName", "N/A"),
+            "Team": team_info,
+            "HRs": hr,
+            "AVG": avg,
+            "AB/HR (2025)": ab_per_hr,
+            "Park": park,
+            "Park Factor": park_factor,
+            "HR Chance": f"{hr_prob}%" if isinstance(hr_prob, float) else "N/A"
         })
 
-    st.dataframe(pd.DataFrame(results), use_container_width=True)
+    return pd.DataFrame(results).sort_values(by="HR Chance", ascending=False)
+
+df = fetch_data()
+
+if df.empty:
+    st.warning("No confirmed matchups available. Please check back later.")
+else:
+    st.dataframe(df.reset_index(drop=True), use_container_width=True)
