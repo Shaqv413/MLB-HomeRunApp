@@ -2,3 +2,4 @@ streamlit
 requests
 pandas
 pybaseball
+git+https://github.com/jldbc/pybaseball.git

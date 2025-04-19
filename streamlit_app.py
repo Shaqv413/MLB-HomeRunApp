@@ -2,13 +2,14 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
-from pybaseball import statcast_batter_pitcher
+from pybaseball import statcast_batter, statcast_pitcher
 
 st.set_page_config(page_title="MLB HR Predictor", layout="wide")
 st.title("MLB Home Run Probability Predictor")
 st.markdown(f"**Date:** {datetime.now().strftime('%Y-%m-%d')}")
 
 today = datetime.now().strftime("%Y-%m-%d")
+start_date = "2024-03-01"
 
 @st.cache_data(show_spinner=False)
 def fetch_data():
@@ -46,6 +47,7 @@ def fetch_data():
             game_meta[home_team] = {**meta, "is_home": True}
 
     results = []
+
     for player in top_players:
         p = player['player']
         s = player['stat']
@@ -64,20 +66,19 @@ def fetch_data():
         hrs = int(s.get('homeRuns', 0))
         hr_rate = hrs / gp if gp > 0 else 0
         hr_prob = hr_rate * 10000
+        matchup_note = "No direct matchup data"
 
-        # Batter vs Pitcher using statcast
-        matchup_note = "No Statcast matchup"
+        # Use statcast_batter (since statcast_batter_pitcher is unavailable)
         try:
-            matchup_df = statcast_batter_pitcher(start_dt="2024-03-01", end_dt=today, batter=p['id'], pitcher=pitcher['id'])
-            if not matchup_df.empty:
-                ab = len(matchup_df)
-                hr = matchup_df['events'].fillna('').str.count('home_run').sum()
-                hits = matchup_df['events'].fillna('').str.contains('single|double|triple|home_run').sum()
-                matchup_note = f"{ab} AB, {int(hits)} H, {int(hr)} HR vs {pitcher['fullName']}"
-                if hr > 0:
-                    hr_prob *= 1.05
+            batter_df = statcast_batter(start_dt=start_date, end_dt=today, player_id=p['id'])
+            pitcher_df = statcast_pitcher(start_dt=start_date, end_dt=today, player_id=pitcher['id'])
+
+            # For now, just check sample size
+            if not batter_df.empty and not pitcher_df.empty:
+                matchup_note = f"Batter seen {len(batter_df)} pitches | Pitcher thrown {len(pitcher_df)} pitches"
+                hr_prob *= 1.02  # light boost if we have usable statcast data
         except:
-            matchup_note = "Matchup data unavailable"
+            matchup_note = "Statcast error"
 
         results.append({
             "Player": p['fullName'],
