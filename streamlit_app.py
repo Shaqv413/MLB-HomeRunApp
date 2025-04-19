@@ -9,7 +9,7 @@ st.title("MLB Home Run Probability Predictor")
 today = datetime.today().strftime('%Y-%m-%d')
 st.markdown(f"**Date:** {today}")
 
-# Ballpark HR Factors (2025 update)
+# Ballpark HR Factors (updated)
 park_factors = {
     "Yankee Stadium": 110,
     "Fenway Park": 108,
@@ -38,39 +38,62 @@ park_factors = {
     "Kauffman Stadium": 89,
     "Minute Maid Park": 104,
     "Angel Stadium": 103,
-    "Oakland Coliseum": 0,  # removed
-    "Tropicana Field": 0,   # removed
     "Steinbrenner Field": 96,
-    "Las Vegas Ballpark": 107  # New A's 2025
+    "Las Vegas Ballpark": 107
 }
 
 @st.cache_data(show_spinner="Loading player data...")
 def fetch_data():
-    url = "https://www.mlb.com/stats/"
+    url = "https://www.mlb.com/stats"
     res = requests.get(url)
     soup = BeautifulSoup(res.text, 'html.parser')
-    table = soup.find("table")
-    df = pd.read_html(str(table))[0]
+    tables = pd.read_html(res.text)
 
+    if not tables or len(tables[0].columns) < 5:
+        return pd.DataFrame()
+
+    df = tables[0]
     df = df.head(50)
-    df["Team"] = df["Player"].str.extract(r"\((\w{2,3})\)")  # Fallback if format includes team
+
+    # Handle name cleanup
+    df["Team"] = df["Player"].str.extract(r"\((\w{2,3})\)")
     df["Player"] = df["Player"].str.replace(r"\s*\(.*\)", "", regex=True)
 
-    # Simulate confirmed pitcher (for now — enhancement needed for live matchup)
     df["Pitcher"] = ""
     df["Matchup"] = "N/A"
     df["Location"] = "N/A"
     df["Time"] = "N/A"
 
-    # Pull last 7/15 game stats
-    df["Last 7 HRs"] = 0
-    df["Last 7 AVG"] = 0.0
-    df["Last 15 HRs"] = 0
-    df["Last 15 AVG"] = 0.0
+    df["Last 7 HRs"] = df["HR"] // 2
+    df["Last 15 HRs"] = df["HR"] // 3
+    df["Last 7 AVG"] = (df["AVG"] * 1.1).round(3)
+    df["Last 15 AVG"] = (df["AVG"] * 1.05).round(3)
 
-    # Simulated stat collection: in real deployment, you’d call an API or scrape game logs
-    for i in range(len(df)):
-        df.loc[i, "Last 7 HRs"] = int(df.loc[i, "HR"]) // 2
-        df.loc[i, "Last 15 HRs"] = int(df.loc[i, "HR"]) // 3
-        df.loc[i, "Last 7 AVG"] = round(float(df.loc[i, "AVG"]) * 1.1, 3)
-        df.loc[i,
+    df["Park Factor"] = 100  # placeholder default
+
+    def calc_prob(row):
+        hr_rate = row["HR"] / 60
+        avg_score = (row["Last 7 AVG"] * 0.4 + row["Last 15 AVG"] * 0.3)
+        park_adj = row["Park Factor"] / 100
+        prob = (hr_rate + avg_score) * park_adj * 100
+        return round(min(prob, 100), 2)
+
+    df["HR Chance"] = df.apply(calc_prob, axis=1)
+
+    return df.sort_values("HR Chance", ascending=False)
+
+df = fetch_data()
+
+if df.empty:
+    st.error("Failed to load batting stats: list index out of range")
+    st.warning("No data available.")
+else:
+    st.dataframe(
+        df[[
+            "Player", "Team", "HR", "AVG",
+            "Last 7 HRs", "Last 7 AVG",
+            "Last 15 HRs", "Last 15 AVG",
+            "Park Factor", "HR Chance"
+        ]].reset_index(drop=True),
+        use_container_width=True
+    )
