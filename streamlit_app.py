@@ -1,46 +1,76 @@
 import streamlit as st
 import pandas as pd
+import requests
 from datetime import datetime
+from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="MLB Home Run Probability Predictor", layout="wide")
+st.set_page_config(page_title="MLB HR Predictor", layout="wide")
 st.title("MLB Home Run Probability Predictor")
-st.markdown(f"**Date:** {datetime.today().strftime('%Y-%m-%d')}")
+today = datetime.today().strftime('%Y-%m-%d')
+st.markdown(f"**Date:** {today}")
+
+# Ballpark HR Factors (2025 update)
+park_factors = {
+    "Yankee Stadium": 110,
+    "Fenway Park": 108,
+    "Dodger Stadium": 104,
+    "Oracle Park": 85,
+    "Petco Park": 91,
+    "Great American Ball Park": 115,
+    "LoanDepot Park": 88,
+    "Camden Yards": 107,
+    "Wrigley Field": 105,
+    "Globe Life Field": 102,
+    "Truist Park": 103,
+    "Citi Field": 95,
+    "Busch Stadium": 92,
+    "American Family Field": 109,
+    "T-Mobile Park": 93,
+    "Comerica Park": 90,
+    "Progressive Field": 100,
+    "PNC Park": 94,
+    "Target Field": 98,
+    "Chase Field": 106,
+    "Coors Field": 120,
+    "Guaranteed Rate Field": 108,
+    "Rogers Centre": 101,
+    "Nationals Park": 99,
+    "Kauffman Stadium": 89,
+    "Minute Maid Park": 104,
+    "Angel Stadium": 103,
+    "Oakland Coliseum": 0,  # removed
+    "Tropicana Field": 0,   # removed
+    "Steinbrenner Field": 96,
+    "Las Vegas Ballpark": 107  # New A's 2025
+}
 
 @st.cache_data(show_spinner="Loading player data...")
 def fetch_data():
-    # Simulated or test data structure to avoid real-time delays
-    data = [
-        {"Name": "Aaron Judge", "Team": "NYY", "HR": 5, "AVG": 0.310},
-        {"Name": "Shohei Ohtani", "Team": "LAD", "HR": 3},
-        {"Name": "Juan Soto", "HR": 4, "AVG": 0.280},
-        {"Name": "Mookie Betts"},
-    ]
-    df = pd.DataFrame(data)
+    url = "https://www.mlb.com/stats/"
+    res = requests.get(url)
+    soup = BeautifulSoup(res.text, 'html.parser')
+    table = soup.find("table")
+    df = pd.read_html(str(table))[0]
 
-    results = []
-    for _, row in df.iterrows():
-        player = row.get("Name", "Unknown")
-        team = row.get("Team", "N/A")
-        hr = row.get("HR", 0)
-        avg = row.get("AVG", 0.0)
+    df = df.head(50)
+    df["Team"] = df["Player"].str.extract(r"\((\w{2,3})\)")  # Fallback if format includes team
+    df["Player"] = df["Player"].str.replace(r"\s*\(.*\)", "", regex=True)
 
-        # Sample HR probability calculation
-        hr_chance = round(min(0.3, hr * avg / 10) * 100, 1)
+    # Simulate confirmed pitcher (for now — enhancement needed for live matchup)
+    df["Pitcher"] = ""
+    df["Matchup"] = "N/A"
+    df["Location"] = "N/A"
+    df["Time"] = "N/A"
 
-        results.append({
-            "Player": player,
-            "Team": team,
-            "HRs": hr,
-            "AVG": f"{avg:.3f}" if avg else "N/A",
-            "HR Chance": f"{hr_chance}%"
-        })
+    # Pull last 7/15 game stats
+    df["Last 7 HRs"] = 0
+    df["Last 7 AVG"] = 0.0
+    df["Last 15 HRs"] = 0
+    df["Last 15 AVG"] = 0.0
 
-    df_final = pd.DataFrame(results)
-    return df_final
-
-df = fetch_data()
-
-if df.empty:
-    st.warning("No player data available.")
-else:
-    st.dataframe(df.reset_index(drop=True), use_container_width=True)
+    # Simulated stat collection: in real deployment, you’d call an API or scrape game logs
+    for i in range(len(df)):
+        df.loc[i, "Last 7 HRs"] = int(df.loc[i, "HR"]) // 2
+        df.loc[i, "Last 15 HRs"] = int(df.loc[i, "HR"]) // 3
+        df.loc[i, "Last 7 AVG"] = round(float(df.loc[i, "AVG"]) * 1.1, 3)
+        df.loc[i,
