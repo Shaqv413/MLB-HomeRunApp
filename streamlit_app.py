@@ -8,7 +8,20 @@ st.title("MLB Home Run Probability Predictor")
 st.markdown("#### Date: {}".format(datetime.today().strftime("%Y-%m-%d")))
 
 @st.cache_data(show_spinner=False)
+def get_team_lookup():
+    """Fetch all team abbreviations and IDs"""
+    team_url = "https://statsapi.mlb.com/api/v1/teams?sportId=1"
+    res = requests.get(team_url).json()
+    lookup = {}
+    for team in res['teams']:
+        lookup[team['id']] = team['abbreviation']
+    return lookup
+
+@st.cache_data(show_spinner=False)
 def fetch_data():
+    # Get team ID to abbreviation map
+    team_lookup = get_team_lookup()
+
     url = "https://statsapi.mlb.com/api/v1/stats"
     params = {
         "stats": "season",
@@ -26,12 +39,9 @@ def fetch_data():
         info = player['player']
         stats = player['stat']
 
-        # Try getting team abbreviation from team object
-        team_abbr = info.get('currentTeam', {}).get('abbreviation', None)
-
-        # If no abbreviation, fallback to full name or N/A
-        team_name = info.get('currentTeam', {}).get('name', None)
-        team = team_abbr or team_name or "N/A"
+        # Get team ID from player['team']['id']
+        team_id = player.get('team', {}).get('id')
+        team = team_lookup.get(team_id, "N/A") if team_id else "N/A"
 
         results.append({
             "Player": info.get('fullName', 'Unknown'),
