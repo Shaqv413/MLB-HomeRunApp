@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
-from pybaseball import statcast, playerid_lookup
+from pybaseball import statcast_batter
 
 st.set_page_config(page_title="MLB HR Predictor", layout="wide")
 st.title("MLB Home Run Predictor with Recent Performance")
@@ -43,20 +43,18 @@ def fetch_top_hitters(season):
         })
     return pd.DataFrame(results)
 
-@st.cache_data(show_spinner=False)
-def fetch_recent_stats(player_id, days):
+def fetch_recent_stats(batter_id, days):
     end = datetime.today()
     start = end - timedelta(days=days)
     try:
-        logs = statcast(start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'), player_id=player_id)
-        logs = logs[logs['batter'] == player_id]
+        logs = statcast_batter(start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'), batter_id)
         if logs.empty:
             return 0, 'N/A', 'N/A'
         hr_count = logs['events'].fillna('').str.count('home_run').sum()
         hits = logs['events'].isin(['single', 'double', 'triple', 'home_run']).sum()
         ab = logs['at_bat'].sum()
         avg = round(hits / ab, 3) if ab > 0 else 'N/A'
-        ops = 'N/A'  # Simplified placeholder
+        ops = 'N/A'  # Placeholder; can be improved with raw stat calculation
         return int(hr_count), avg, ops
     except:
         return 0, 'N/A', 'N/A'
