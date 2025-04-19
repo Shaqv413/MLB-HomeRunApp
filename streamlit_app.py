@@ -1,13 +1,13 @@
 import streamlit as st
 import pandas as pd
-import requests
 from datetime import datetime
+from pybaseball import batting_stats_range
 
 st.set_page_config(page_title="MLB HR Predictor", layout="wide")
 st.title("MLB Home Run Probability Predictor")
 st.markdown(f"**Date:** {datetime.now().date()}")
 
-# Full 2025 ballpark HR factors
+# Updated 2025 Ballpark HR Factors (for future use if needed)
 park_factors = {
     "Angel Stadium": 198,
     "Yankee Stadium": 198,
@@ -37,45 +37,34 @@ park_factors = {
     "PNC Park": 69,
     "Citi Field": 63,
     "Progressive Field": 61,
-    "George M. Steinbrenner Field": 104,  # Temporary Rays home
-    "Sutter Health Park": 89              # Temporary A's home
+    "George M. Steinbrenner Field": 104,
+    "Sutter Health Park": 89
 }
 
 @st.cache_data(ttl=3600)
 def fetch_data():
-    url = "https://statsapi.mlb.com/api/v1/stats"
-    params = {
-        "stats": "season",
-        "group": "hitting",
-        "season": "2025",
-        "limit": 50,
-        "sortStat": "homeRuns"
-    }
-
+    start_date = "2025-03-01"
+    end_date = datetime.now().strftime("%Y-%m-%d")
     try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        data = batting_stats_range(start_date, end_date)
     except Exception as e:
-        st.error(f"Failed to fetch player data: {e}")
+        st.error(f"Failed to load batting stats: {e}")
         return pd.DataFrame()
 
-    players = data.get("stats", [{}])[0].get("splits", [])
+    data = data.sort_values(by="HR", ascending=False).head(50)
     results = []
 
-    for player in players:
-        info = player.get("player", {})
-        stats = player.get("stat", {})
-        team = info.get("currentTeam", {}).get("name", "N/A")
-        venue = player.get("team", {}).get("venue", {}).get("name", "N/A")
-
-        hr = int(stats.get("homeRuns", 0))
-        ab = int(stats.get("atBats", 0))
-        avg = stats.get("avg", "N/A")
+    for _, row in data.iterrows():
+        player = row["Name"]
+        hr = int(row["HR"])
+        ab = int(row["AB"])
+        avg = row["AVG"]
+        team = row["Team"]
         ab_per_hr = round(ab / hr, 1) if hr > 0 else None
 
-        park = venue
-        park_factor = park_factors.get(park, 100)
+        # No venue info in pybaseball — default to neutral
+        park = "Unknown"
+        park_factor = 100
 
         if ab_per_hr:
             hr_prob = round((1 / ab_per_hr) * (park_factor / 100) * 100, 1)
@@ -83,10 +72,11 @@ def fetch_data():
             hr_prob = None
 
         results.append({
-            "Player": info.get("fullName", "N/A"),
+            "Player": player,
             "Team": team,
             "HRs": hr,
             "AVG": avg,
+            "AB": ab,
             "AB/HR (2025)": ab_per_hr if ab_per_hr else "N/A",
             "Park": park,
             "Park Factor": park_factor,
@@ -94,19 +84,18 @@ def fetch_data():
         })
 
     df = pd.DataFrame(results)
-
-    if not df.empty and "HR Chance" in df.columns:
+    if not df.empty:
         df = df.dropna(subset=["HR Chance"])
         df = df.sort_values(by="HR Chance", ascending=False)
         df["HR Chance"] = df["HR Chance"].astype(float).round(1).astype(str) + "%"
 
     return df
 
-# Show table
+# Display app
 with st.spinner("Loading player data..."):
     df = fetch_data()
 
 if df.empty:
-    st.warning("No data available right now. Try again soon.")
+    st.warning("No data available.")
 else:
     st.dataframe(df.reset_index(drop=True), use_container_width=True)
