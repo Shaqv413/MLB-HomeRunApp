@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-from pybaseball import batting_stats
+from pybaseball import batting_stats, playerid_reverse_lookup
 from datetime import datetime
 from bs4 import BeautifulSoup
 
@@ -9,16 +9,26 @@ st.set_page_config(page_title="MLB HR Predictor", layout="wide")
 st.title("MLB Home Run Predictor with Days Since Last HR")
 st.markdown(f"**Date:** {datetime.today().date()}")
 
-# Manually mapped Baseball-Reference slugs for demo purposes
-br_slugs = {
-    "Aaron Judge": "judgeaa01",
-    "Shohei Ohtani": "ohtansh01",
-    "Mookie Betts": "bettsmo01",
-    "Juan Soto": "sotoju01",
-    "Matt Olson": "olsonma01"
-}
+# ⚙️ Load Baseball-Reference ID lookup table
+@st.cache_data
+def generate_slug_table():
+    return playerid_reverse_lookup()
 
-# Function to scrape days since last HR from Baseball-Reference
+# 🔁 Convert "First Last" to Baseball-Reference slug
+def get_br_slug(name, slug_table):
+    try:
+        first, last = name.split(" ", 1)
+        match = slug_table[
+            (slug_table["name_first"].str.lower() == first.lower()) &
+            (slug_table["name_last"].str.lower() == last.lower())
+        ]
+        if not match.empty:
+            return match.iloc[0]["key_bbref"]
+        return None
+    except:
+        return None
+
+# 📅 Get Days Since Last HR from Baseball-Reference game log
 def get_days_since_last_hr(br_slug):
     try:
         url = f"https://www.baseball-reference.com/players/gl.fcgi?id={br_slug}&t=b&year=2025"
@@ -36,29 +46,31 @@ def get_days_since_last_hr(br_slug):
     except:
         return "N/A"
 
-# Get top 25 HR hitters
+# 📊 Load 2025 top HR hitters
 @st.cache_data
-def fetch_data():
+def fetch_top_hitters():
     df = batting_stats(2025)
     df = df.sort_values("HR", ascending=False).head(25)
-    df["AB/HR"] = (df["AB"] / df["HR"]).replace([float('inf'), 0], 999)
+    df["AB/HR"] = (df["AB"] / df["HR"]).replace([float("inf"), 0], 999)
     df["HR Chance"] = round((1 / df["AB/HR"]) * 100, 2).astype(str) + "%"
     return df[["Name", "Team", "HR", "AB", "AVG", "AB/HR", "HR Chance"]]
 
-df = fetch_data()
+# 🏁 Fetch and process data
+df = fetch_top_hitters()
+slug_table = generate_slug_table()
 
-# Add "Days Since Last HR" if slug exists
-days_since = []
-with st.spinner("Fetching Days Since Last HR from Baseball-Reference..."):
+# 🔍 Calculate Days Since Last HR
+days_list = []
+with st.spinner("Calculating Days Since Last HR from Baseball-Reference..."):
     for name in df["Name"]:
-        slug = br_slugs.get(name, None)
+        slug = get_br_slug(name, slug_table)
         if slug:
             days = get_days_since_last_hr(slug)
         else:
             days = "N/A"
-        days_since.append(days)
+        days_list.append(days)
 
-df["Days Since Last HR"] = days_since
+df["Days Since Last HR"] = days_list
 
-# Display the full table
+# 📋 Show final table
 st.dataframe(df.reset_index(drop=True), use_container_width=True)
