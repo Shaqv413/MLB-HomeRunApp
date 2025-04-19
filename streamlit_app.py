@@ -47,7 +47,7 @@ def fetch_data():
         "stats": "season",
         "group": "hitting",
         "season": "2025",
-        "limit": 100,
+        "limit": 50,  # reduced to top 50 for performance
         "sortStat": "homeRuns"
     }
 
@@ -63,7 +63,6 @@ def fetch_data():
         team_info = info.get("currentTeam", {}).get("name", "N/A")
         venue = player.get("team", {}).get("venue", {}).get("name", "N/A")
 
-        # Pull recent HR + AVG from season stats
         hr = int(stats.get("homeRuns", 0))
         avg = stats.get("avg", "N/A")
         ab = int(stats.get("atBats", 0))
@@ -72,7 +71,6 @@ def fetch_data():
         park = venue
         park_factor = park_factors.get(park, 100)
 
-        # Basic probability model
         try:
             hr_prob = (1 / ab_per_hr) * (park_factor / 100) * 100 if isinstance(ab_per_hr, float) else "N/A"
             hr_prob = round(hr_prob, 1) if isinstance(hr_prob, float) else "N/A"
