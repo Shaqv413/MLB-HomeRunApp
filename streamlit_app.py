@@ -1,107 +1,127 @@
 import streamlit as st
-import requests
 import pandas as pd
+import requests
 from datetime import datetime
-from pybaseball import statcast_batter, statcast_pitcher
+from pybaseball import playerid_lookup, statcast_batter
 
 st.set_page_config(page_title="MLB HR Predictor", layout="wide")
 st.title("MLB Home Run Probability Predictor")
-st.markdown(f"**Date:** {datetime.now().strftime('%Y-%m-%d')}")
+st.markdown("**Date:** " + str(datetime.today().date()))
 
-today = datetime.now().strftime("%Y-%m-%d")
-start_date = "2024-03-01"
+# Ballpark Factors (sample values)
+park_factors = {
+    "Yankee Stadium": 110,
+    "Fenway Park": 108,
+    "Dodger Stadium": 104,
+    "Coors Field": 125,
+    "Oracle Park": 85
+}
 
-@st.cache_data(show_spinner=False)
-def fetch_data():
-    stats_url = "https://statsapi.mlb.com/api/v1/stats"
+# Get today's probable pitchers
+def get_probable_pitchers():
+    url = "https://statsapi.mlb.com/api/v1/schedule"
+    params = {"sportId": 1, "date": datetime.today().strftime('%Y-%m-%d')}
+    data = requests.get(url, params=params).json()
+    matchups = {}
+    for date in data.get("dates", []):
+        for game in date.get("games", []):
+            teams = game["teams"]
+            away = teams["away"]
+            home = teams["home"]
+            venue = game["venue"]["name"]
+            time = game["gameDate"][11:16]
+            if "probablePitcher" in away:
+                matchups[home["team"]["name"]] = {
+                    "pitcher": away["probablePitcher"]["fullName"],
+                    "pitcher_id": away["probablePitcher"]["id"],
+                    "venue": venue,
+                    "time": time
+                }
+            if "probablePitcher" in home:
+                matchups[away["team"]["name"]] = {
+                    "pitcher": home["probablePitcher"]["fullName"],
+                    "pitcher_id": home["probablePitcher"]["id"],
+                    "venue": venue,
+                    "time": time
+                }
+    return matchups
+
+# Get top 100 HR hitters
+def get_top_hitters():
+    url = "https://statsapi.mlb.com/api/v1/stats"
     params = {
         "stats": "season",
         "group": "hitting",
-        "season": "2025",
+        "season": datetime.today().year,
         "limit": 100,
         "sortStat": "homeRuns"
     }
-    top_players = requests.get(stats_url, params=params).json()['stats'][0]['splits']
+    data = requests.get(url, params=params).json()
+    players = []
+    for item in data["stats"][0]["splits"]:
+        p = item["player"]
+        stats = item["stat"]
+        players.append({
+            "Name": p["fullName"],
+            "ID": p["id"],
+            "Team": p.get("currentTeam", {}).get("name", "N/A"),
+            "HR": stats.get("homeRuns", 0),
+            "AVG": stats.get("avg", "N/A"),
+            "OPS": stats.get("ops", "N/A")
+        })
+    return players
 
-    schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}"
-    games_res = requests.get(schedule_url).json()
-    games = games_res['dates'][0]['games'] if games_res['dates'] else []
+# Get batter vs pitcher statcast data
+def get_h2h(batter_id, pitcher_id):
+    try:
+        df = statcast_batter('2023-01-01', '2024-12-31', batter_id)
+        df_vs = df[df["pitcher"] == pitcher_id]
+        ab = len(df_vs)
+        hits = len(df_vs[df_vs["events"].isin(["single", "double", "triple", "home_run"])])
+        hrs = len(df_vs[df_vs["events"] == "home_run"])
+        avg = round(hits / ab, 3) if ab > 0 else "N/A"
+        return ab, hits, hrs, avg
+    except:
+        return "N/A", "N/A", "N/A", "N/A"
 
-    pitcher_map = {}
-    game_meta = {}
+# Combine all data
+def build_table():
+    matchups = get_probable_pitchers()
+    players = get_top_hitters()
+    rows = []
 
-    for game in games:
-        venue = game['venue']['name']
-        home_team = game['teams']['home']['team']['name']
-        away_team = game['teams']['away']['team']['name']
-        game_time = game['gameDate']
-        hour = int(game_time[11:13])
-        is_night = hour >= 18
-        meta = {"venue": venue, "is_night": is_night}
+    for p in players:
+        team = p["Team"]
+        opp = matchups.get(team, {})
+        pitcher = opp.get("pitcher", "N/A")
+        pid = opp.get("pitcher_id")
+        park = opp.get("venue", "N/A")
+        time = opp.get("time", "N/A")
+        pf = park_factors.get(park, "N/A")
 
-        if 'probablePitcher' in game['teams']['home']:
-            pitcher_map[away_team] = game['teams']['home']['probablePitcher']
-            game_meta[away_team] = {**meta, "is_home": False}
-        if 'probablePitcher' in game['teams']['away']:
-            pitcher_map[home_team] = game['teams']['away']['probablePitcher']
-            game_meta[home_team] = {**meta, "is_home": True}
+        ab, hits, hr_vs, avg_vs = get_h2h(p["ID"], pid) if pid else ("N/A", "N/A", "N/A", "N/A")
 
-    results = []
-
-    for player in top_players:
-        p = player['player']
-        s = player['stat']
-        team = p.get('currentTeam', {}).get('name', 'N/A')
-
-        if team not in pitcher_map:
-            continue
-
-        pitcher = pitcher_map[team]
-        meta = game_meta[team]
-        venue = meta['venue']
-        is_home = meta['is_home']
-        is_night = meta['is_night']
-
-        gp = int(s.get('gamesPlayed', 0))
-        hrs = int(s.get('homeRuns', 0))
-        hr_rate = hrs / gp if gp > 0 else 0
-        hr_prob = hr_rate * 10000
-        matchup_note = "No direct matchup data"
-
-        try:
-            batter_df = statcast_batter(start_dt=start_date, end_dt=today, player_id=p['id'])
-            pitcher_df = statcast_pitcher(start_dt=start_date, end_dt=today, player_id=pitcher['id'])
-
-            if not batter_df.empty and not pitcher_df.empty:
-                matchup_note = f"Batter seen {len(batter_df)} pitches | Pitcher thrown {len(pitcher_df)} pitches"
-                hr_prob *= 1.02
-        except:
-            matchup_note = "Statcast error"
-
-        results.append({
-            "Player": p['fullName'],
+        rows.append({
+            "Player": p["Name"],
             "Team": team,
-            "HRs": hrs,
-            "AVG": s.get('avg', 'N/A'),
-            "OPS": s.get('ops', 'N/A'),
-            "Pitcher": pitcher['fullName'],
-            "Matchup": matchup_note,
-            "Location": "Home" if is_home else "Away",
-            "Time": "Night" if is_night else "Day",
-            "Venue": venue,
-            "HR Chance": f"{round(hr_prob, 1)}%"
+            "HRs": p["HR"],
+            "AVG": p["AVG"],
+            "OPS": p["OPS"],
+            "Pitcher": pitcher,
+            "AB vs P": ab,
+            "Hits": hits,
+            "HR vs P": hr_vs,
+            "BA vs P": avg_vs,
+            "Location": park,
+            "Time": time,
+            "Park Factor": pf
         })
 
-    df = pd.DataFrame(results)
+    return pd.DataFrame(rows)
 
-    # Safely sort if column exists
-    if "HR Chance" in df.columns:
-        df = df.sort_values(by="HR Chance", ascending=False)
-
-    return df
-
-# === MAIN ===
-df = fetch_data()
+# Main render
+with st.spinner("Gathering today’s stats…"):
+    df = build_table()
 
 if df.empty:
     st.warning("No confirmed matchups available. Please check back later.")
