@@ -3,11 +3,11 @@ import pandas as pd
 import requests
 from datetime import datetime
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="MLB HR Predictor", layout="wide")
 st.title("MLB Home Run Probability Predictor")
 st.markdown(f"**Date:** {datetime.now().date()}")
 
-# Updated Ballpark HR Factors (100 = league average)
+# Full 2025 ballpark HR factors
 park_factors = {
     "Angel Stadium": 198,
     "Yankee Stadium": 198,
@@ -37,13 +37,13 @@ park_factors = {
     "PNC Park": 69,
     "Citi Field": 63,
     "Progressive Field": 61,
-    "George M. Steinbrenner Field": 104,  # Temporary Rays stadium
-    "Sutter Health Park": 89              # Temporary A's stadium
+    "George M. Steinbrenner Field": 104,  # Temporary Rays home
+    "Sutter Health Park": 89              # Temporary A's home
 }
 
 @st.cache_data(ttl=3600)
 def fetch_data():
-    stats_url = "https://statsapi.mlb.com/api/v1/stats"
+    url = "https://statsapi.mlb.com/api/v1/stats"
     params = {
         "stats": "season",
         "group": "hitting",
@@ -53,7 +53,7 @@ def fetch_data():
     }
 
     try:
-        response = requests.get(stats_url, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
     except Exception as e:
@@ -66,7 +66,7 @@ def fetch_data():
     for player in players:
         info = player.get("player", {})
         stats = player.get("stat", {})
-        team_info = info.get("currentTeam", {}).get("name", "N/A")
+        team = info.get("currentTeam", {}).get("name", "N/A")
         venue = player.get("team", {}).get("venue", {}).get("name", "N/A")
 
         hr = int(stats.get("homeRuns", 0))
@@ -84,7 +84,7 @@ def fetch_data():
 
         results.append({
             "Player": info.get("fullName", "N/A"),
-            "Team": team_info,
+            "Team": team,
             "HRs": hr,
             "AVG": avg,
             "AB/HR (2025)": ab_per_hr if ab_per_hr else "N/A",
@@ -102,11 +102,11 @@ def fetch_data():
 
     return df
 
-# Load and display data
+# Show table
 with st.spinner("Loading player data..."):
     df = fetch_data()
 
 if df.empty:
-    st.warning("No data available. Please try again later.")
+    st.warning("No data available right now. Try again soon.")
 else:
     st.dataframe(df.reset_index(drop=True), use_container_width=True)
