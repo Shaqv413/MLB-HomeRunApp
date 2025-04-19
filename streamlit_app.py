@@ -68,15 +68,13 @@ def fetch_data():
         hr_prob = hr_rate * 10000
         matchup_note = "No direct matchup data"
 
-        # Use statcast_batter (since statcast_batter_pitcher is unavailable)
         try:
             batter_df = statcast_batter(start_dt=start_date, end_dt=today, player_id=p['id'])
             pitcher_df = statcast_pitcher(start_dt=start_date, end_dt=today, player_id=pitcher['id'])
 
-            # For now, just check sample size
             if not batter_df.empty and not pitcher_df.empty:
                 matchup_note = f"Batter seen {len(batter_df)} pitches | Pitcher thrown {len(pitcher_df)} pitches"
-                hr_prob *= 1.02  # light boost if we have usable statcast data
+                hr_prob *= 1.02
         except:
             matchup_note = "Statcast error"
 
@@ -94,7 +92,13 @@ def fetch_data():
             "HR Chance": f"{round(hr_prob, 1)}%"
         })
 
-    return pd.DataFrame(results).sort_values(by="HR Chance", ascending=False)
+    df = pd.DataFrame(results)
+
+    # Safely sort if column exists
+    if "HR Chance" in df.columns:
+        df = df.sort_values(by="HR Chance", ascending=False)
+
+    return df
 
 # === MAIN ===
 df = fetch_data()
