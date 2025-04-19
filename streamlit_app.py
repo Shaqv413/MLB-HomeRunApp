@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from pybaseball import batting_stats, playerid_lookup, statcast_batter
+from pybaseball import batting_stats, playerid_reverse_lookup, statcast_batter
 from datetime import datetime
 
 st.set_page_config(page_title="MLB HR Predictor (2025)", layout="wide")
@@ -16,46 +16,41 @@ def fetch_top_hitters():
 @st.cache_data
 def get_days_since_last_hr(player_name):
     try:
-        # Lookup player ID
-        name_parts = player_name.split(" ", 1)
-        player_info = playerid_lookup(name_parts[0], name_parts[1]) if len(name_parts) == 2 else pd.DataFrame()
-        if player_info.empty:
+        # Use reverse lookup (last name only match) for better accuracy
+        last_name = player_name.split()[-1]
+        matches = playerid_reverse_lookup()
+        matched = matches[matches["name_last"] == last_name]
+
+        if matched.empty:
             return "N/A"
-        player_id = player_info.iloc[0]["key_mlbam"]
 
-        # Pull statcast data for 2025
-        logs = statcast_batter(
-            start_dt="2025-03-01",
-            end_dt=datetime.today().strftime("%Y-%m-%d"),
-            player_id=player_id
-        )
+        player_id = matched.iloc[0]["key_mlbam"]
+        logs = statcast_batter("2025-03-01", datetime.today().strftime("%Y-%m-%d"), player_id)
 
-        # Filter for HRs
         hr_logs = logs[logs["events"] == "home_run"]
         if hr_logs.empty:
             return "N/A"
 
         last_hr_date = pd.to_datetime(hr_logs.iloc[-1]["game_date"])
-        days_since = (datetime.today() - last_hr_date).days
-        return days_since
-    except:
+        return (datetime.today() - last_hr_date).days
+    except Exception as e:
         return "N/A"
 
-# Load data
+# Load base stats
 df = fetch_top_hitters()
 
-# Calculate AB/HR and HR Chance
+# Calculate probability
 df["AB/HR"] = (df["AB"] / df["HR"]).replace([float("inf"), 0], 999)
 df["HR Chance"] = round((1 / df["AB/HR"]) * 100, 2).astype(str) + "%"
 
-# Calculate Days Since Last HR
-days_since_list = []
+# Calculate days since last HR
+days_since = []
 with st.spinner("Calculating Days Since Last HR..."):
-    for name in df["Name"]:
-        days = get_days_since_last_hr(name)
-        days_since_list.append(days)
+    for player in df["Name"]:
+        days = get_days_since_last_hr(player)
+        days_since.append(days)
 
-df["Days Since Last HR"] = days_since_list
+df["Days Since Last HR"] = days_since
 
-# Display
+# Show data
 st.dataframe(df.reset_index(drop=True), use_container_width=True)
