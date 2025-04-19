@@ -8,7 +8,6 @@ st.set_page_config(page_title="MLB HR Predictor", layout="wide")
 st.title("MLB Home Run Predictor with Days Since Last HR")
 st.write("Date:", datetime.today().date())
 
-# ⏳ Get the top HR hitters live from MLB.com
 @st.cache_data(ttl=3600)
 def fetch_top_hitters():
     url = "https://www.mlb.com/stats/home-runs"
@@ -21,25 +20,35 @@ def fetch_top_hitters():
 
     try:
         df = pd.read_html(str(table))[0]
-    except Exception:
+    except Exception as e:
+        st.error(f"Error reading MLB table: {e}")
         return pd.DataFrame()
 
+    df = df.rename(columns=lambda col: col.strip())
     df = df.rename(columns={"Player": "Name"})
+
+    expected_cols = ["HR", "AB", "AVG"]
+    for col in expected_cols:
+        if col not in df.columns:
+            st.error(f"Missing column: {col}")
+            return pd.DataFrame()
+
+    # Convert stats to numeric
+    for col in expected_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
     df = df.head(25)
+    df = df.dropna(subset=expected_cols)
 
-    for col in ["HR", "AB", "AVG"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df = df.dropna(subset=["HR", "AB", "AVG"])
     df["AB/HR"] = df["AB"] / df["HR"]
+    df["AB/HR"] = df["AB/HR"].replace([float("inf"), -float("inf")], None)
+
     league_avg_ab_hr = df["AB/HR"].mean(skipna=True)
     df["HR Chance"] = ((1 / df["AB/HR"]) / (1 / league_avg_ab_hr)) * 100
     df["HR Chance"] = df["HR Chance"].fillna(0).round(1)
 
     return df[["Name", "Team", "HR", "AB", "AVG", "AB/HR", "HR Chance"]]
 
-# 🔍 Build BR slugs from player name (first initial + 5 letters of last + 2 digit number)
 def generate_br_slug(name):
     try:
         first, last = name.split(" ", 1)
@@ -48,7 +57,6 @@ def generate_br_slug(name):
     except:
         return None
 
-# 📅 Get Days Since Last HR from BR game logs
 def get_days_since_last_hr(br_slug):
     try:
         url = f"https://www.baseball-reference.com/players/gl.fcgi?id={br_slug}&t=b&year=2025"
@@ -68,11 +76,10 @@ def get_days_since_last_hr(br_slug):
     except:
         return "N/A"
 
-# 🚀 Load data and calculate all stats
 df = fetch_top_hitters()
 
 if df.empty:
-    st.warning("No data available.")
+    st.warning("No valid data available.")
 else:
     st.markdown("**Calculating Days Since Last HR...**")
     days_list = []
