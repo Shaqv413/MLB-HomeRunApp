@@ -47,7 +47,7 @@ def fetch_data():
         "stats": "season",
         "group": "hitting",
         "season": "2025",
-        "limit": 50,  # reduced to top 50 for performance
+        "limit": 50,
         "sortStat": "homeRuns"
     }
 
@@ -71,11 +71,12 @@ def fetch_data():
         park = venue
         park_factor = park_factors.get(park, 100)
 
-        try:
-            hr_prob = (1 / ab_per_hr) * (park_factor / 100) * 100 if isinstance(ab_per_hr, float) else "N/A"
-            hr_prob = round(hr_prob, 1) if isinstance(hr_prob, float) else "N/A"
-        except:
-            hr_prob = "N/A"
+        # Calculate HR probability
+        if isinstance(ab_per_hr, float):
+            hr_prob = round((1 / ab_per_hr) * (park_factor / 100) * 100, 1)
+            hr_chance = f"{hr_prob}%"
+        else:
+            hr_chance = "N/A"
 
         results.append({
             "Player": info.get("fullName", "N/A"),
@@ -85,10 +86,18 @@ def fetch_data():
             "AB/HR (2025)": ab_per_hr,
             "Park": park,
             "Park Factor": park_factor,
-            "HR Chance": f"{hr_prob}%" if isinstance(hr_prob, float) else "N/A"
+            "HR Chance": hr_chance
         })
 
-    return pd.DataFrame(results).sort_values(by="HR Chance", ascending=False)
+    df = pd.DataFrame(results)
+
+    # Only sort if HR Chance column is valid
+    if "HR Chance" in df.columns:
+        df = df[df["HR Chance"] != "N/A"]
+        df["HR Chance"] = df["HR Chance"].str.rstrip('%').astype(float)
+        df = df.sort_values(by="HR Chance", ascending=False)
+        df["HR Chance"] = df["HR Chance"].astype(str) + "%"
+    return df
 
 df = fetch_data()
 
