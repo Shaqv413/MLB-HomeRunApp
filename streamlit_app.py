@@ -19,6 +19,10 @@ def get_team_lookup():
 
 @st.cache_data(show_spinner=False)
 def fetch_data():
+    # Determine the current season based on today's date
+    today = datetime.today()
+    current_season = today.year
+
     # Get team ID to abbreviation map
     team_lookup = get_team_lookup()
 
@@ -26,7 +30,7 @@ def fetch_data():
     params = {
         "stats": "season",
         "group": "hitting",
-        "season": "2024",
+        "season": current_season,
         "limit": 100,
         "sortStat": "homeRuns"
     }
