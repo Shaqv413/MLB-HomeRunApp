@@ -2,16 +2,16 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
-from pybaseball import statcast_batter
+from pybaseball import statcast_batter, batting_stats_range
 
 st.set_page_config(page_title="MLB HR Predictor", layout="wide")
-st.title("MLB Home Run Predictor with Recent Stats (HR + AVG Only)")
+st.title("MLB Home Run Probability Predictor")
 st.markdown("#### Date: {}".format(datetime.today().strftime("%Y-%m-%d")))
 
 @st.cache_data(show_spinner=False)
 def get_team_lookup():
-    team_url = "https://statsapi.mlb.com/api/v1/teams?sportId=1"
-    res = requests.get(team_url).json()
+    url = "https://statsapi.mlb.com/api/v1/teams?sportId=1"
+    res = requests.get(url).json()
     return {team['id']: team['abbreviation'] for team in res['teams']}
 
 @st.cache_data(show_spinner=False)
@@ -38,45 +38,73 @@ def fetch_top_hitters(season):
             "ID": info.get('id'),
             "Team": team,
             "HRs": stats.get('homeRuns', 0),
-            "AVG": stats.get('avg', 'N/A')
         })
     return pd.DataFrame(results)
 
-def fetch_recent_hr_avg(batter_id, days):
-    end = datetime.today()
-    start = end - timedelta(days=days)
+def get_ab_hr_rate(player_name):
+    seasons = {
+        "2023": ("2023-03-01", "2023-11-01"),
+        "2024": ("2024-03-01", "2024-11-01"),
+        "2025": ("2025-03-01", datetime.today().strftime('%Y-%m-%d')),
+    }
+    total_ab = 0
+    total_hr = 0
+    weight = {"2023": 0.1, "2024": 0.3, "2025": 0.6}
+
+    for year, (start, end) in seasons.items():
+        try:
+            stats = batting_stats_range(start, end)
+            player_row = stats[stats['Name'] == player_name]
+            if not player_row.empty:
+                ab = int(player_row['AB'].values[0])
+                hr = int(player_row['HR'].values[0])
+                total_ab += ab * weight[year]
+                total_hr += hr * weight[year]
+        except:
+            continue
+
+    if total_hr > 0:
+        ab_per_hr = round(total_ab / total_hr, 2)
+        hr_rate = round(1 / ab_per_hr, 4)
+        return ab_per_hr, hr_rate
+    else:
+        return "N/A", 0.0
+
+def get_recent_hr_boost(batter_id):
     try:
+        end = datetime.today()
+        start = end - timedelta(days=7)
         logs = statcast_batter(start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'), batter_id)
         if logs.empty:
-            return 0, 'N/A'
+            return 0
         hr_count = logs['events'].fillna('').str.count('home_run').sum()
-        hits = logs['events'].isin(['single', 'double', 'triple', 'home_run']).sum()
-        ab = len(logs[logs['description'].isin([
-            'hit_into_play', 'hit_into_play_score', 'hit_into_play_no_out'
-        ])])
-        avg = round(hits / ab, 3) if ab > 0 else 'N/A'
-        return int(hr_count), avg
+        if hr_count >= 4:
+            return 0.25
+        elif hr_count >= 2:
+            return 0.1
+        else:
+            return 0
     except:
-        return 0, 'N/A'
+        return 0
 
 with st.spinner("Loading player data..."):
     season = datetime.today().year
     df = fetch_top_hitters(season)
 
-    recent_data = []
+    # Add probability calculation
+    hr_chances = []
     for _, row in df.iterrows():
+        name = row['Player']
         pid = row['ID']
-        hr7, avg7 = fetch_recent_hr_avg(pid, 7)
-        hr15, avg15 = fetch_recent_hr_avg(pid, 15)
-        recent_data.append({
-            "HR (Last 7)": hr7,
-            "AVG (Last 7)": avg7,
-            "HR (Last 15)": hr15,
-            "AVG (Last 15)": avg15
+        ab_hr, base_rate = get_ab_hr_rate(name)
+        recency_boost = get_recent_hr_boost(pid)
+        hr_chance = round(base_rate * (1 + recency_boost) * 100, 2)
+        hr_chances.append({
+            "Player": name,
+            "Team": row['Team'],
+            "HRs": row['HRs'],
+            "HR Chance": f"{hr_chance}%" if hr_chance > 0 else "N/A"
         })
 
-    recent_df = pd.DataFrame(recent_data)
-    full_df = pd.concat([df.reset_index(drop=True), recent_df], axis=1)
-    full_df.drop(columns=["ID"], inplace=True)
-    st.dataframe(full_df, use_container_width=True)
-
+    result_df = pd.DataFrame(hr_chances)
+    st.dataframe(result_df, use_container_width=True)
